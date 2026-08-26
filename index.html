@@ -177,44 +177,61 @@ function ideaCard(x,position){
 
 $("loadIdeas").onclick=async()=>{
   const box=$("ideasList");
-  box.innerHTML="Analizando activos...";
+  box.innerHTML="Analizando activos uno por uno...";
 
-  try{
-    const results=await Promise.all(
-      ideaCandidates.map(async a=>{
-        try{
-          const d=await api("TIME_SERIES_DAILY",a.symbol);
-          return analyzeIdea(a.name,a.symbol,d);
-        }catch(e){
-          return null;
-        }
-      })
-    );
+  const results=[];
+  const errors=[];
 
-    const valid=results
-      .filter(Boolean)
-      .sort((a,b)=>b.score-a.score)
-      .slice(0,3);
+  for(const a of ideaCandidates){
+    try{
+      box.innerHTML=
+        `<div class="small">Analizando ${a.name}...</div>`;
 
-    if(!valid.length){
-      box.textContent="No se pudieron obtener datos de mercado.";
-      return;
+      const d=await api("TIME_SERIES_DAILY",a.symbol);
+      const result=analyzeIdea(a.name,a.symbol,d);
+
+      if(result){
+        results.push(result);
+      }else{
+        errors.push(`${a.symbol}: datos insuficientes`);
+      }
+
+      // Pequeña pausa para evitar saturar la API
+      await new Promise(resolve=>setTimeout(resolve,1200));
+
+    }catch(e){
+      errors.push(`${a.symbol}: ${e}`);
     }
-
-    box.innerHTML=
-      `<div class="small" style="margin:10px 0 4px">
-        Basado en datos diarios disponibles.
-      </div>`+
-      valid.map((x,i)=>ideaCard(x,i+1)).join("")+
-      `<div class="notice">
-        <b>Nota:</b> el Score MicroInvest es un indicador
-        técnico preliminar para comparar activos. No es una
-        recomendación financiera ni garantiza rendimientos.
-      </div>`;
-
-  }catch(e){
-    box.textContent="No se pudieron cargar las ideas: "+e;
   }
+
+  const valid=results
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,3);
+
+  if(!valid.length){
+    box.innerHTML=`
+      <b>No se pudieron obtener datos.</b>
+      <div class="small" style="margin-top:8px">
+        ${errors.join("<br>")}
+      </div>`;
+    return;
+  }
+
+  box.innerHTML=
+    `<div class="small" style="margin:10px 0 4px">
+      ${results.length} de ${ideaCandidates.length} activos analizados.
+    </div>`+
+    valid.map((x,i)=>ideaCard(x,i+1)).join("")+
+    (errors.length?`
+      <div class="notice">
+        <b>Activos no disponibles:</b><br>
+        ${errors.join("<br>")}
+      </div>`:"")+
+    `<div class="notice">
+      <b>Nota:</b> el Score MicroInvest es un indicador
+      técnico preliminar para comparar activos. No es una
+      recomendación financiera ni garantiza rendimientos.
+    </div>`;
 };
 $("loadNews").onclick=async()=>{let t=$("newsTicker").value.trim().toUpperCase();$("newsList").textContent="Cargando...";try{let d=await api("NEWS_SENTIMENT",t);$("newsList").innerHTML=(d.feed||[]).slice(0,10).map(n=>`<div class="news"><b>${n.title||"Noticia"}</b><div class="small">${n.source||""} · ${n.time_published||""}</div><div class="small">${n.summary||""}</div></div>`).join("")||"No se encontraron noticias."}catch(e){$("newsList").textContent="No se pudo cargar: "+e}};
 $("loadQuote").onclick=async()=>{let name=$("projAsset").value,sym=assets[name];$("quote").textContent="Consultando...";try{let d=await api("GLOBAL_QUOTE",sym),q=d["Global Quote"]||{};$("quote").innerHTML=`${name}<br><b>${q["05. price"]?money(q["05. price"]):"Sin precio"}</b> · ${q["10. change percent"]||"—"}`}catch(e){$("quote").textContent="No se pudo cargar. Revisa la API Key y el símbolo."}};
