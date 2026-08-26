@@ -5,7 +5,27 @@
 <section id="home"><div class="title">Resumen</div><div class="card"><div class="row"><div><div class="small">Capital registrado</div><div class="goal" id="total">$0</div></div><span class="pill">REGISTRADO</span></div></div><div class="title">Mis retos activos</div><div id="homeChallenges"></div></section>
 <section id="challenges" class="hidden"><div class="title">Mis retos</div><div id="allChallenges"></div><div class="card"><h3 style="margin:0">Crear nuevo reto</h3><label>Activo</label><select id="asset"></select><label>Tipo</label><select id="period"><option>Mensual</option><option>Anual</option></select><label>Nombre</label><input id="name" placeholder="Ej. Mi primer ETF"><label>Meta (MXN)</label><input id="goal" type="number" min="1"><label>Avance inicial (MXN)</label><input id="current" type="number" min="0"><button id="create">Crear reto</button></div></section>
 <section id="news" class="hidden"><div class="title">Noticias reales</div><div class="card"><label>Ticker</label><input id="newsTicker" value="AAPL"><button id="loadNews">Actualizar noticias</button><div id="newsList" class="notice">Pulsa actualizar.</div></div></section>
-<section id="ideas" class="hidden"><div class="title">Ideas</div><div class="card"><b>3 activos destacados</b><p class="small">Esta primera conexión prepara el motor de datos. Después añadiremos el score automático.</p><div id="ideasList"></div></div></section>
+<section id="ideas" class="hidden">
+  <div class="title">Ideas de inversión</div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <b>Ranking MicroInvest</b>
+        <div class="small">Análisis técnico preliminar</div>
+      </div>
+      <span class="pill">AUTOMÁTICO</span>
+    </div>
+
+    <button id="loadIdeas" style="margin-top:12px">
+      🔄 Actualizar ideas
+    </button>
+
+    <div id="ideasList" class="notice">
+      Pulsa "Actualizar ideas" para analizar los activos.
+    </div>
+  </div>
+</section>
 <section id="projection" class="hidden"><div class="title">Proyección</div><div class="card"><h3 style="margin:0">Proyección de inversión</h3><label>Activo</label><select id="projAsset"></select><button id="loadQuote" class="secondary">Consultar precio actual</button><div id="quote" class="notice">Aún no consultado.</div><label>Inversión inicial (MXN)</label><input id="pi" type="number" value="5000"><label>Aportación mensual (MXN)</label><input id="pm" type="number" value="500"><label>Plazo (años)</label><input id="py" type="number" value="10"><label>Rendimiento anual supuesto (%)</label><input id="pr" type="number" value="8"><button id="calc">Calcular ROI</button><div id="result" class="notice">El ROI será calculado automáticamente.</div></div></section>
 </main><nav><button class="active" data-tab="home"><span class="icon">⌂</span>Inicio</button><button data-tab="challenges"><span class="icon">🎯</span>Retos</button><button data-tab="news"><span class="icon">📰</span>Noticias</button><button data-tab="ideas"><span class="icon">📈</span>Ideas</button><button data-tab="projection"><span class="icon">🧮</span>Proyección</button></nav></div>
 <script>
@@ -18,6 +38,184 @@ function fill(){let o=Object.keys(assets).map(x=>`<option>${x}</option>`).join()
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{document.querySelectorAll("main section").forEach(s=>s.classList.add("hidden"));$(b.dataset.tab).classList.remove("hidden");document.querySelectorAll("nav button").forEach(x=>x.classList.remove("active"));b.classList.add("active")});
 $("create").onclick=()=>{let goal=Number($("goal").value),current=Math.max(0,Number($("current").value)||0);if(goal<=0)return alert("La meta debe ser mayor que 0.");state.challenges.push({id:Date.now(),asset:$("asset").value,period:$("period").value,name:$("name").value.trim()||"Reto de inversión",goal,current:Math.min(goal,current)});save();$("name").value="";$("goal").value="";$("current").value=""};
 async function api(fn,symbol){let r=await fetch(`/api/market?function=${encodeURIComponent(fn)}&symbol=${encodeURIComponent(symbol)}`);let d=await r.json();if(!r.ok||d.error)return Promise.reject(d.error||"Error");return d}
+const ideaCandidates=[
+  {name:"Vanguard S&P 500 ETF (VOO)",symbol:"VOO"},
+  {name:"Apple (AAPL)",symbol:"AAPL"},
+  {name:"Microsoft (MSFT)",symbol:"MSFT"},
+  {name:"NVIDIA (NVDA)",symbol:"NVDA"},
+  {name:"Amazon (AMZN)",symbol:"AMZN"}
+];
+
+const clamp=(n,min=0,max=100)=>Math.max(min,Math.min(max,n));
+
+function analyzeIdea(name,symbol,data){
+  const series=data["Time Series (Daily)"];
+  if(!series) return null;
+
+  const rows=Object.entries(series)
+    .sort((a,b)=>new Date(a[0])-new Date(b[0]))
+    .map(([date,v])=>({
+      date,
+      close:Number(v["4. close"]),
+      high:Number(v["2. high"]),
+      low:Number(v["3. low"]),
+      volume:Number(v["5. volume"])
+    }))
+    .filter(x=>Number.isFinite(x.close));
+
+  if(rows.length<20) return null;
+
+  const last=rows[rows.length-1];
+  const last20=rows.slice(-20);
+  const last5=rows.slice(-5);
+
+  const sma5=last5.reduce((s,x)=>s+x.close,0)/last5.length;
+  const sma20=last20.reduce((s,x)=>s+x.close,0)/last20.length;
+
+  const price20=rows[rows.length-20].close;
+  const return20=((last.close/price20)-1)*100;
+
+  const dailyReturns=[];
+  for(let i=Math.max(1,rows.length-20);i<rows.length;i++){
+    dailyReturns.push((rows[i].close/rows[i-1].close)-1);
+  }
+
+  const mean=dailyReturns.reduce((s,x)=>s+x,0)/dailyReturns.length;
+  const variance=dailyReturns.reduce((s,x)=>s+Math.pow(x-mean,2),0)/dailyReturns.length;
+  const volatility=Math.sqrt(variance)*100;
+
+  const trendPct=((sma5/sma20)-1)*100;
+
+  const trendScore=clamp(50+trendPct*12);
+  const returnScore=clamp(50+return20*3);
+  const riskScore=clamp(100-volatility*12);
+
+  const score=Math.round(
+    trendScore*0.40+
+    returnScore*0.35+
+    riskScore*0.25
+  );
+
+  let trend="Neutral";
+  if(trendPct>1) trend="Alcista";
+  else if(trendPct<-1) trend="Bajista";
+
+  let risk="Moderado";
+  if(volatility>3) risk="Alto";
+  else if(volatility<1.5) risk="Bajo";
+
+  let reason="Comportamiento mixto.";
+  if(trend==="Alcista" && return20>0)
+    reason="Tendencia positiva y rendimiento reciente favorable.";
+  else if(trend==="Alcista")
+    reason="La tendencia reciente es positiva, aunque el rendimiento de 20 sesiones es débil.";
+  else if(trend==="Bajista")
+    reason="La tendencia reciente es débil y requiere cautela.";
+  else if(return20>0)
+    reason="Presenta rendimiento positivo, aunque sin una tendencia claramente definida.";
+
+  return {
+    name,
+    symbol,
+    price:last.close,
+    return20,
+    volatility,
+    trendPct,
+    trend,
+    risk,
+    score,
+    reason
+  };
+}
+
+function ideaCard(x,position){
+  const medal=position===1?"🥇":position===2?"🥈":"🥉";
+  const trendClass=x.return20>=0?"up":"down";
+
+  return `
+    <div class="card">
+      <div class="row">
+        <div>
+          <div class="asset">${medal} ${x.name}</div>
+          <div class="small">${x.symbol}</div>
+        </div>
+        <span class="pill">Score ${x.score}</span>
+      </div>
+
+      <div class="goal">${money(x.price)}</div>
+
+      <div class="progress">
+        <div class="bar" style="width:${x.score}%"></div>
+      </div>
+
+      <div class="row" style="margin-top:10px">
+        <div>
+          <div class="small">20 sesiones</div>
+          <b class="${trendClass}">
+            ${x.return20>=0?"+":""}${x.return20.toFixed(2)}%
+          </b>
+        </div>
+
+        <div>
+          <div class="small">Tendencia</div>
+          <b>${x.trend}</b>
+        </div>
+
+        <div>
+          <div class="small">Riesgo</div>
+          <b>${x.risk}</b>
+        </div>
+      </div>
+
+      <div class="notice">
+        <b>¿Por qué aparece?</b><br>
+        ${x.reason}
+      </div>
+    </div>
+  `;
+}
+
+$("loadIdeas").onclick=async()=>{
+  const box=$("ideasList");
+  box.innerHTML="Analizando activos...";
+
+  try{
+    const results=await Promise.all(
+      ideaCandidates.map(async a=>{
+        try{
+          const d=await api("TIME_SERIES_DAILY",a.symbol);
+          return analyzeIdea(a.name,a.symbol,d);
+        }catch(e){
+          return null;
+        }
+      })
+    );
+
+    const valid=results
+      .filter(Boolean)
+      .sort((a,b)=>b.score-a.score)
+      .slice(0,3);
+
+    if(!valid.length){
+      box.textContent="No se pudieron obtener datos de mercado.";
+      return;
+    }
+
+    box.innerHTML=
+      `<div class="small" style="margin:10px 0 4px">
+        Basado en datos diarios disponibles.
+      </div>`+
+      valid.map((x,i)=>ideaCard(x,i+1)).join("")+
+      `<div class="notice">
+        <b>Nota:</b> el Score MicroInvest es un indicador
+        técnico preliminar para comparar activos. No es una
+        recomendación financiera ni garantiza rendimientos.
+      </div>`;
+
+  }catch(e){
+    box.textContent="No se pudieron cargar las ideas: "+e;
+  }
+};
 $("loadNews").onclick=async()=>{let t=$("newsTicker").value.trim().toUpperCase();$("newsList").textContent="Cargando...";try{let d=await api("NEWS_SENTIMENT",t);$("newsList").innerHTML=(d.feed||[]).slice(0,10).map(n=>`<div class="news"><b>${n.title||"Noticia"}</b><div class="small">${n.source||""} · ${n.time_published||""}</div><div class="small">${n.summary||""}</div></div>`).join("")||"No se encontraron noticias."}catch(e){$("newsList").textContent="No se pudo cargar: "+e}};
 $("loadQuote").onclick=async()=>{let name=$("projAsset").value,sym=assets[name];$("quote").textContent="Consultando...";try{let d=await api("GLOBAL_QUOTE",sym),q=d["Global Quote"]||{};$("quote").innerHTML=`${name}<br><b>${q["05. price"]?money(q["05. price"]):"Sin precio"}</b> · ${q["10. change percent"]||"—"}`}catch(e){$("quote").textContent="No se pudo cargar. Revisa la API Key y el símbolo."}};
 $("calc").onclick=()=>{let i=Math.max(0,Number($("pi").value)||0),m=Math.max(0,Number($("pm").value)||0),y=Math.max(0,Number($("py").value)||0),r=Math.max(-99,Number($("pr").value)||0)/100/12,n=Math.floor(y*12),v=i;for(let k=0;k<n;k++)v=v*(1+r)+m;let aport=i+m*n,roi=aport?((v-aport)/aport)*100:0;$("result").innerHTML=`<b>${$("projAsset").value}</b><br><br>Aportado: <b>${money(aport)}</b><br>Valor estimado: <b>${money(v)}</b><br>Ganancia estimada: <b>${money(v-aport)}</b><br>ROI estimado: <b>${roi.toFixed(1)}%</b><br><span class="small">Hipótesis matemática; no es una predicción.</span>`};
