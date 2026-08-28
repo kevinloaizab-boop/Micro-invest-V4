@@ -69,50 +69,139 @@ function analyzeIdea(name,symbol,data){
   const last20=rows.slice(-20);
   const last5=rows.slice(-5);
 
+  // Medias móviles
   const sma5=last5.reduce((s,x)=>s+x.close,0)/last5.length;
   const sma20=last20.reduce((s,x)=>s+x.close,0)/last20.length;
 
+  // Rendimiento de 20 sesiones
   const price20=rows[rows.length-20].close;
   const return20=((last.close/price20)-1)*100;
 
+  // Rendimiento de 5 sesiones
+  const price5=rows[rows.length-6]?.close || last5[0].close;
+  const return5=((last.close/price5)-1)*100;
+
+  // Rendimientos diarios
   const dailyReturns=[];
+
   for(let i=Math.max(1,rows.length-20);i<rows.length;i++){
     dailyReturns.push((rows[i].close/rows[i-1].close)-1);
   }
 
-  const mean=dailyReturns.reduce((s,x)=>s+x,0)/dailyReturns.length;
-  const variance=dailyReturns.reduce((s,x)=>s+Math.pow(x-mean,2),0)/dailyReturns.length;
+  const mean=
+    dailyReturns.reduce((s,x)=>s+x,0)/dailyReturns.length;
+
+  const variance=
+    dailyReturns.reduce(
+      (s,x)=>s+Math.pow(x-mean,2),0
+    )/dailyReturns.length;
+
   const volatility=Math.sqrt(variance)*100;
 
+  // Diferencia entre SMA5 y SMA20
   const trendPct=((sma5/sma20)-1)*100;
 
-  const trendScore=clamp(50+trendPct*12);
-  const returnScore=clamp(50+return20*3);
-  const riskScore=clamp(100-volatility*12);
+  // =========================
+  // SCORE MICROINVEST
+  // =========================
 
-  const score=Math.round(
-    trendScore*0.40+
-    returnScore*0.35+
-    riskScore*0.25
+  // 1. Momentum 30%
+  const momentumScore=clamp(
+    50+return20*3
   );
 
+  // 2. Tendencia 25%
+  const trendScore=clamp(
+    50+trendPct*15
+  );
+
+  // 3. Fuerza reciente 15%
+  const strengthScore=clamp(
+    50+return5*5
+  );
+
+  // 4. Riesgo 20%
+  const riskScore=clamp(
+    100-volatility*12
+  );
+
+  // 5. Consistencia 10%
+  const positiveDays=
+    dailyReturns.filter(x=>x>0).length;
+
+  const consistencyPct=
+    positiveDays/dailyReturns.length*100;
+
+  const consistencyScore=
+    clamp(consistencyPct);
+
+  // Score final
+  const score=Math.round(
+    momentumScore*0.30+
+    trendScore*0.25+
+    strengthScore*0.15+
+    riskScore*0.20+
+    consistencyScore*0.10
+  );
+
+  // =========================
+  // CLASIFICACIÓN
+  // =========================
+
   let trend="Neutral";
-  if(trendPct>1) trend="Alcista";
-  else if(trendPct<-1) trend="Bajista";
+
+  if(trendPct>1)
+    trend="Alcista";
+  else if(trendPct<-1)
+    trend="Bajista";
 
   let risk="Moderado";
-  if(volatility>3) risk="Alto";
-  else if(volatility<1.5) risk="Bajo";
+
+  if(volatility>3)
+    risk="Alto";
+  else if(volatility<1.5)
+    risk="Bajo";
+
+  // =========================
+  // EXPLICACIÓN
+  // =========================
 
   let reason="Comportamiento mixto.";
-  if(trend==="Alcista" && return20>0)
-    reason="Tendencia positiva y rendimiento reciente favorable.";
-  else if(trend==="Alcista")
-    reason="La tendencia reciente es positiva, aunque el rendimiento de 20 sesiones es débil.";
-  else if(trend==="Bajista")
-    reason="La tendencia reciente es débil y requiere cautela.";
-  else if(return20>0)
-    reason="Presenta rendimiento positivo, aunque sin una tendencia claramente definida.";
+
+  if(
+    trend==="Alcista" &&
+    return20>0 &&
+    volatility<3
+  ){
+    reason=
+      "Tendencia alcista, momentum positivo y volatilidad controlada.";
+  }
+  else if(
+    trend==="Alcista" &&
+    return20>0
+  ){
+    reason=
+      "Tendencia alcista y rendimiento reciente favorable.";
+  }
+  else if(
+    return20>0 &&
+    return5>0
+  ){
+    reason=
+      "Momentum positivo tanto en 20 como en 5 sesiones.";
+  }
+  else if(trend==="Bajista"){
+    reason=
+      "La tendencia reciente es débil y requiere cautela.";
+  }
+  else if(volatility>3){
+    reason=
+      "Presenta rendimiento positivo, pero con volatilidad elevada.";
+  }
+  else if(return20>0){
+    reason=
+      "Presenta rendimiento positivo, aunque sin una tendencia claramente definida.";
+  }
 
   return {
     name,
